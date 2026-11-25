@@ -37,7 +37,7 @@ def show_images(images, titles, cols=3, save_as=None):
 	fig.tight_layout()
 	if save_as is not None:
 		RESULTS_DIR.mkdir(exist_ok=True)
-		fig.savefig(RESULTS_DIR / save_as, dpi=120)
+		fig.savefig(RESULTS_DIR / save_as, dpi=120, bbox_inches="tight")
 	plt.close(fig)
 
 
