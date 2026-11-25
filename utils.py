@@ -39,3 +39,9 @@ def show_images(images, titles, cols=3, save_as=None):
 		RESULTS_DIR.mkdir(exist_ok=True)
 		fig.savefig(RESULTS_DIR / save_as, dpi=120)
 	plt.close(fig)
+
+
+def load_ground_truth(name):
+	path = DATA_DIR / "ground_truth" / f"{name}.txt"
+	digits = [int(ch) for ch in path.read_text() if ch.isdigit()]
+	return [digits[i * 9:(i + 1) * 9] for i in range(9)]

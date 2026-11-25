@@ -9,5 +9,5 @@ Uses the course venv (`../.venv`) with OpenCV, NumPy, Matplotlib and scikit-lear
 ## Layout
 
 - `data/photos/` puzzle photos (`puzzleNN.jpeg`)
-- `data/ground_truth/` one text file per puzzle, 81 characters, `0` for empty
+- `data/ground_truth/` one text file per puzzle, 9 lines of 9 digits, `0` for empty (only printed givens, not pen marks)
 - `results/` figures produced by the scripts (not committed)
