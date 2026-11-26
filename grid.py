@@ -1,5 +1,5 @@
-# Step 2: find the four outer corners of the grid with Canny + Hough lines.
-# Harris corners are used as a cross-check and the largest contour as a fallback.
+# Step 2: find the four outer corners of the grid from the largest contour, with Canny + Hough lines
+# as a fallback. Each result is checked by warping it and testing that grid lines are where we expect.
 
 import cv2
 import numpy as np
@@ -8,7 +8,7 @@ from preprocess import threshold_photo, to_gray
 from utils import PHOTOS_DIR, load_photo, show_images
 
 
-def find_lines(binary, vote_ratio=0.4):
+def find_lines(binary, vote_ratio=0.3):
 	edges = cv2.Canny(binary, 100, 200)
 	min_votes = int(vote_ratio * min(binary.shape))
 	lines = cv2.HoughLines(edges, 1, np.pi / 180, min_votes)
@@ -17,16 +17,22 @@ def find_lines(binary, vote_ratio=0.4):
 	return edges, [tuple(line[0]) for line in lines]
 
 
-def split_lines(lines, angle_tol=20):
-	horizontal = []
-	vertical = []
+def split_lines(lines, angle_tol=15):
+	degs = [np.degrees(theta) % 90 for _, theta in lines]
+	hist, _ = np.histogram(degs, bins=45, range=(0, 90))
+	dominant = np.argmax(hist) * 2 + 1
+
+	families = [[], []]
 	for rho, theta in lines:
 		deg = np.degrees(theta)
-		if abs(deg - 90) < angle_tol:
-			horizontal.append((rho, theta))
-		elif deg < angle_tol or deg > 180 - angle_tol:
-			vertical.append((rho, theta))
-	return horizontal, vertical
+		for k, ref in enumerate([dominant, dominant + 90]):
+			diff = (deg - ref + 90) % 180 - 90
+			if abs(diff) < angle_tol:
+				if abs(deg - ref) > 90:
+					families[k].append((-rho, theta - np.pi))
+				else:
+					families[k].append((rho, theta))
+	return families
 
 
 def line_x_at(line, y):
@@ -51,40 +57,60 @@ def intersect(line1, line2):
 
 def corners_from_hough(binary):
 	edges, lines = find_lines(binary)
-	horizontal, vertical = split_lines(lines)
-	if len(horizontal) < 2 or len(vertical) < 2:
+	if len(lines) < 4:
+		return None, edges, lines
+	family_a, family_b = split_lines(lines)
+	if len(family_a) < 2 or len(family_b) < 2:
 		return None, edges, lines
 
-	h, w = binary.shape
-	top = min(horizontal, key=lambda l: line_y_at(l, w / 2))
-	bottom = max(horizontal, key=lambda l: line_y_at(l, w / 2))
-	left = min(vertical, key=lambda l: line_x_at(l, h / 2))
-	right = max(vertical, key=lambda l: line_x_at(l, h / 2))
+	first_a = min(family_a, key=lambda l: l[0])
+	last_a = max(family_a, key=lambda l: l[0])
+	first_b = min(family_b, key=lambda l: l[0])
+	last_b = max(family_b, key=lambda l: l[0])
 
-	corners = [intersect(top, left), intersect(top, right),
-			   intersect(bottom, right), intersect(bottom, left)]
+	corners = [intersect(first_a, first_b), intersect(first_a, last_b),
+			   intersect(last_a, last_b), intersect(last_a, first_b)]
 	return np.array(corners, dtype=np.float32), edges, lines
 
 
 def corners_from_contour(binary):
 	contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 	biggest = max(contours, key=cv2.contourArea)
-	peri = cv2.arcLength(biggest, True)
-	approx = cv2.approxPolyDP(biggest, 0.02 * peri, True)
-	if len(approx) != 4:
-		return None
-	return approx.reshape(4, 2).astype(np.float32)
+	hull = cv2.convexHull(biggest)
+	peri = cv2.arcLength(hull, True)
+	for eps in np.arange(0.01, 0.1, 0.005):
+		approx = cv2.approxPolyDP(hull, eps * peri, True)
+		if len(approx) == 4:
+			return approx.reshape(4, 2).astype(np.float32)
+	return None
 
 
 def order_corners(pts):
 	pts = np.array(pts, dtype=np.float32)
-	s = pts.sum(axis=1)
-	d = np.diff(pts, axis=1).ravel()
-	top_left = pts[np.argmin(s)]
-	bottom_right = pts[np.argmax(s)]
-	top_right = pts[np.argmin(d)]
-	bottom_left = pts[np.argmax(d)]
-	return np.array([top_left, top_right, bottom_right, bottom_left], dtype=np.float32)
+	center = pts.mean(axis=0)
+	angles = np.arctan2(pts[:, 1] - center[1], pts[:, 0] - center[0])
+	pts = pts[np.argsort(angles)]
+	start = np.argmin(pts.sum(axis=1))
+	return np.roll(pts, -start, axis=0)
+
+
+def grid_score(binary, corners, size=450, band=3):
+	dst = np.array([[0, 0], [size - 1, 0], [size - 1, size - 1], [0, size - 1]], dtype=np.float32)
+	H = cv2.getPerspectiveTransform(corners, dst)
+	warped = cv2.warpPerspective(binary, H, (size, size))
+	step = size / 9
+	on_lines = []
+	off_lines = []
+	for i in range(10):
+		pos = int(min(i * step, size - band))
+		lo = max(pos - band, 0)
+		on_lines.append(warped[lo:pos + band, :].max(axis=0).mean())
+		on_lines.append(warped[:, lo:pos + band].max(axis=1).mean())
+	for i in range(9):
+		pos = int((i + 0.5) * step)
+		off_lines.append(warped[pos - band:pos + band, :].max(axis=0).mean())
+		off_lines.append(warped[:, pos - band:pos + band].max(axis=1).mean())
+	return (np.mean(on_lines) - np.mean(off_lines)) / 255
 
 
 def harris_check(img, corners, window=10):
@@ -105,16 +131,16 @@ def harris_check(img, corners, window=10):
 	return np.array(refined, dtype=np.float32)
 
 
-def find_grid(img):
+def find_grid(img, min_score=0.3):
 	binary = threshold_photo(img)
-	corners, edges, lines = corners_from_hough(binary)
-	method = "hough"
-	if corners is None:
-		corners = corners_from_contour(binary)
-		method = "contour"
-	if corners is None:
-		return None, method
-	return order_corners(corners), method
+	contour = corners_from_contour(binary)
+	if contour is not None and grid_score(binary, order_corners(contour)) >= min_score:
+		return order_corners(contour), "contour"
+
+	hough, _, _ = corners_from_hough(binary)
+	if hough is not None and grid_score(binary, order_corners(hough)) >= min_score:
+		return order_corners(hough), "hough"
+	return None, "none"
 
 
 def draw_lines(img, lines):
@@ -140,11 +166,10 @@ def draw_corners(img, corners, color=(0, 255, 0)):
 if __name__ == "__main__":
 	img = load_photo(PHOTOS_DIR / "puzzle01.jpeg")
 	binary = threshold_photo(img)
-	_, edges, lines = corners_from_hough(binary)
-	corners, method = find_grid(img)
+	hough, edges, lines = corners_from_hough(binary)
+	corners = order_corners(hough)
 	harris = harris_check(img, corners)
 
-	print("method:", method)
 	print("hough corners:\n", corners.round(1))
 	print("harris corners:\n", harris.round(1))
 	print("mean distance:", np.linalg.norm(corners - harris, axis=1).mean().round(2), "px")

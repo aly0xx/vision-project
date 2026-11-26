@@ -34,9 +34,9 @@ def find_digit(cell_binary, min_area=0.02, max_area=0.6):
 		x, y, bw, bh, area = stats[i]
 		if area < min_area * h * w or area > max_area * h * w:
 			continue
-		if bw > 0.8 * w or bh > 0.95 * h:
+		if bw > 0.95 * w or bh > 0.95 * h:
 			continue
-		if bh < 0.3 * h:
+		if max(bw, bh) < 0.3 * h:
 			continue
 		cx, cy = centroids[i]
 		if abs(cx - w / 2) > 0.3 * w or abs(cy - h / 2) > 0.3 * h:

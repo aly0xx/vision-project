@@ -36,7 +36,8 @@ def rotate_photo(img, corners, angle):
 	M[0, 2] += new_w / 2 - w / 2
 	M[1, 2] += new_h / 2 - h / 2
 
-	rotated = cv2.warpAffine(img, M, (new_w, new_h), borderMode=cv2.BORDER_REPLICATE)
+	paper = [int(v) for v in np.median(img.reshape(-1, 3), axis=0)]
+	rotated = cv2.warpAffine(img, M, (new_w, new_h), borderValue=paper)
 	ones = np.ones((4, 1), np.float32)
 	new_corners = np.hstack([corners, ones]) @ M.T
 	return rotated, new_corners.astype(np.float32)
