@@ -1,0 +1,173 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Photo Sudoku Reader Report</title>
+<style>
+	body { font-family: serif; font-size: 11pt; }
+	img { max-width: 100%; max-height: 200mm; }
+	table { border-collapse: collapse; margin: 4px 0; }
+	td, th { border: 1px solid black; padding: 2px 6px; }
+	h3 { break-after: avoid; }
+	img, table, .keep { break-inside: avoid; }
+	@page { size: A4; margin: 15mm; }
+</style>
+</head>
+<body>
+
+<p>Moaz Allam, Zeyad Maher, Aly Youssef<br>CSCE 4603 - Course Project, Option 1: Photo Sudoku Reader</p>
+
+<p>Input: a phone photo of a printed sudoku. Output: the same photo with the missing digits drawn in, and the solved
+9x9 grid. Everything is our own code (OpenCV, NumPy, Matplotlib, scikit-learn), no pretrained models or ready-made
+solvers. <code>python main.py</code> runs the whole project (about 2 minutes on CPU).</p>
+
+<table>
+	<tr><th>Step</th><th>Method</th><th>Lectures</th></tr>
+	<tr><td>1 Threshold</td><td>grayscale, 5x5 Gaussian, adaptive Gaussian threshold (block 15, C 8)</td><td>03, 05</td></tr>
+	<tr><td>2 Grid</td><td>largest contour -> convex hull -> 4 corners; Canny + Hough as fallback; Harris as a check</td><td>04b, 06, 07, 08</td></tr>
+	<tr><td>3 Warp</td><td>homography to a 450x450 square, 81 cells, inverse kept for step 6</td><td>13</td></tr>
+	<tr><td>4 Cells</td><td>grid lines removed with opening, red ink masked, connected components, 28x28 crop</td><td>04, 04b</td></tr>
+	<tr><td>5 Digits</td><td>KNN, SVM, MLP, each with and without PCA, trained on synthetic digits</td><td>06, 10, 11</td></tr>
+	<tr><td>6 Solve</td><td>8 orientations tried, backtracking (fewest options first), drawn back with the inverse homography</td><td>13</td></tr>
+</table>
+
+<h3>Data</h3>
+<p>One phone photo of a printed puzzle (343x295, tilted, page curled at the top, answers in red pen). We made 17 more
+photos from it by rotating (-30 to 30, 90, 180 degrees) and flipping left to right (<code>augment.py</code>), so 18
+photos. Ground truth: 9 lines of 9 digits (0 = empty) and the 4 grid corners, marked by hand on the original and moved
+with the same transform for the copies.</p>
+<table>
+	<tr><th>Set</th><th>Source</th><th>Size</th><th>Used for</th></tr>
+	<tr><td>train</td><td>synthetic, 16 fonts (5 Hershey + 11 free TrueType)</td><td>5760</td><td>training</td></tr>
+	<tr><td>validation</td><td>synthetic, 4 other fonts</td><td>1440</td><td>all tuning</td></tr>
+	<tr><td>test</td><td>real digits cut from the 18 photos</td><td>576</td><td>final numbers only</td></tr>
+</table>
+<p>Validation is split by font (like the plan's split by puzzle), so it measures reading a font the model has not seen.
+Synthetic digits are drawn with random size, position, rotation, shear, stretch, blur, noise and contrast, then go
+through exactly the same step 4 code as the real cells.</p>
+<img src="figures/synthetic_raw.png" style="max-height: 70mm">
+
+<h3>Step 1: Threshold</h3>
+<p>The left side of the page is darker and light shows through from the back. Global T = 127 breaks the lines on the
+lighter right side. Otsu picks its T from the histogram and works on this photo, because the light only changes slowly
+across it; adaptive does not depend on that and keeps the thin lines everywhere. C = 2 picked up the print from the
+back of the page, C = 8 removes it. Grid detection with each threshold (same step 2 code):</p>
+<table>
+	<tr><th>Threshold</th><th>Global (T = 127)</th><th>Otsu</th><th>Adaptive</th></tr>
+	<tr><td>Grids detected</td><td>2/18</td><td>18/18</td><td>18/18</td></tr>
+	<tr><td>Mean corner error</td><td>0.06 cells</td><td>0.10 cells</td><td>0.08 cells</td></tr>
+</table>
+<img src="figures/step1_thresholds.png" style="max-height: 95mm">
+
+<h3>Step 2: Find the grid</h3>
+<p>Detected = all 4 corners within 1/4 cell of the hand-marked corners.</p>
+<table>
+	<tr><th>Method</th><th>Detected</th><th>Mean error</th></tr>
+	<tr><td>Hough lines (outermost of each direction)</td><td>9/18</td><td>0.25 cells</td></tr>
+	<tr><td>Hough + Harris (strongest response within 10 px)</td><td>16/18</td><td>0.13 cells</td></tr>
+	<tr><td>Largest contour (final, Hough as fallback)</td><td>18/18</td><td>0.08 cells</td></tr>
+</table>
+<p>The plan had Hough first and the contour as fallback; the numbers made us swap them. The page is curved, so a
+straight Hough line cannot pass through both ends of the top edge (failure 1). The contour follows the real border. The
+largest contour is turned into 4 corners with a convex hull and approxPolyDP, raising epsilon until 4 points are left.
+Each candidate is checked: warp the binary image and compare the white pixels on the 20 expected grid lines with the
+white pixels between them; below 0.3 it is rejected. On the original photo Harris and Hough corners are 4.5 px apart on
+average. For rotated grids we group Hough lines by the most common angle and the angle 90 degrees from it, instead of
+fixed near-horizontal / near-vertical groups, which failed at 20 and 30 degrees.</p>
+
+<h3>Step 3: Warp</h3>
+<p>Corners are sorted by angle around their center, starting from the one with the smallest x + y. The sum/difference
+trick from the notes breaks near 45 degrees. getPerspectiveTransform + warpPerspective to 450x450 (50 px cells), and
+the inverse matrix is kept for step 6.</p>
+<img src="figures/step3_warp.png" style="max-height: 60mm">
+
+<h3>Step 4: Cells</h3>
+<p>Grid lines are removed before cutting: opening with a 1x45 and a 45x1 line kernel keeps only the lines (no digit
+stroke is 45 px long), the line masks are dilated along their direction to cover the curved parts, and subtracted.
+Both kernels have the same length so it works for sideways grids too. Red pen is removed where R - G &gt; 15 (black ink
+is 0 to 5, red ink about 25); painting it white instead left outlines that looked like digits. Each cell (5% margin)
+gets a 2x2 opening, then connected components: keep components with 2% to 60% of the cell area, longest side at least
+30% of the cell, not a full-width line, and center in the middle 60%. The one nearest the center is the digit; pieces
+that overlap its box (3 px margin) are joined back (failure 2), thin dashes are not. No component = empty. The crop is
+padded to a square and resized to 20x20 inside 28x28.</p>
+<img src="figures/step4_lines_removed.png" style="max-height: 62mm">
+<p>Empty / filled accuracy: 100% (1458/1458 cells). Without the 2x2 opening it is also 100%, because line removal
+already cleans the cells. Before line removal the opening was needed.</p>
+
+<h3>Step 5: Digits</h3>
+<p>Feature = the 784 pixels of the 28x28 crop (0 to 1). PCA keeps 119 components (95% of the variance). Settings were
+picked on validation only; the test set was used once at the end.</p>
+<table>
+	<tr><th>Model</th><th>Settings tried</th><th>Chosen</th><th>Val acc</th><th>Test acc</th></tr>
+	<tr><td>KNN</td><td>k = 1, 3, 5, 7, 9</td><td>k = 1</td><td>0.990</td><td>1.000</td></tr>
+	<tr><td>SVM</td><td>linear C=1; rbf C=1, 10</td><td>rbf, C = 10</td><td>0.992</td><td>1.000</td></tr>
+	<tr><td>MLP</td><td>(64), (128), (128, 64)</td><td>(128, 64)</td><td>0.986</td><td>1.000</td></tr>
+	<tr><td>KNN + PCA</td><td>same</td><td>k = 1</td><td>0.992</td><td>1.000</td></tr>
+	<tr><td>SVM + PCA</td><td>same</td><td>rbf, C = 10</td><td>0.995</td><td>1.000</td></tr>
+	<tr><td>MLP + PCA</td><td>same</td><td>(128, 64)</td><td>0.988</td><td>1.000</td></tr>
+</table>
+<p>All six get all 576 test digits right, so precision, recall and F1 are 1.000 for every digit and the confusion
+matrices are diagonal (results/step5_confusion.png, step5_report.txt). This does not mean the models are equally good:
+the test set has only 32 different printed digits (see Limitations). Validation, from unseen fonts, does separate
+them: SVM + PCA is best (0.995), MLP worst (0.986). PCA helped all three a little on validation.</p>
+<p>MLP: ReLU, softmax output, cross-entropy, Adam (lr 0.001, batch 64), 40 epochs, trained one epoch at a time with
+partial_fit. Training loss goes to almost 0 while validation loss stops at about 0.04 to 0.05 after epoch 15, so it
+over-fits a little; we keep the epoch with the lowest validation loss.</p>
+<img src="figures/step5_training.png" style="max-height: 55mm">
+<p>Fonts matter most. With only OpenCV's Hershey fonts the model learned their shapes (flat-topped 3, 1 with a base)
+and read 3 as 8 and 6 as 5. SVM test accuracy by training fonts:</p>
+<table>
+	<tr><th>Training fonts</th><th>Hershey only (4)</th><th>4 TrueType</th><th>Hershey + 4 TrueType</th><th>all 16</th></tr>
+	<tr><td>Test acc</td><td>0.833</td><td>1.000</td><td>1.000</td><td>1.000</td></tr>
+</table>
+<p>4 TrueType fonts are already enough for our puzzle, but our puzzle is in a Helvetica-like font and two training
+fonts (Nimbus Sans, Liberation Sans) are Helvetica / Arial clones. We keep all 16 for other fonts.</p>
+
+<h3>Step 6: Orientation, solve, draw</h3>
+<p>The warped grid can be rotated or mirrored (rotated photo, or a front camera that mirrors). We read the cells in all
+8 orientations (4 rotations, with and without flip) and keep the one with the highest mean classifier confidence. KNN
+with k = 1 always says 100%, so the reader uses SVM + PCA (best validation among models with real probabilities). The
+givens are checked for repeated digits in rows, columns and boxes, then solved by backtracking that always fills the
+cell with the fewest options. If the grid does not have exactly one solution, the least sure digits (up to 10) are
+changed one at a time to their second choice, and a change is kept only if the puzzle then has exactly one solution.
+Our first version accepted any change that made the grid solvable (5 tries); with it, 5 photos with a single misread
+digit were still not solved correctly. In the final runs no retry was needed. Each empty cell center is mapped back with the
+inverse homography and the digit is drawn there, scaled to the cell size in the photo.</p>
+<img src="figures/solved_puzzle01_flip_rot-20.png" style="max-height: 85mm">
+
+<h3>Results</h3>
+<table>
+	<tr><th>Required number</th><th>Result</th></tr>
+	<tr><td>Grid detection rate</td><td>18/18 (mean corner error 0.08 cells)</td></tr>
+	<tr><td>Digit accuracy, 6 setups</td><td>1.000 each on 576 real test digits (val 0.986 to 0.995)</td></tr>
+	<tr><td>Empty / filled cells</td><td>1458/1458</td></tr>
+	<tr><td>Puzzles solved correctly end to end</td><td>18/18</td></tr>
+</table>
+
+<h3>Failure cases</h3>
+<p>All four happened while building the pipeline; <code>failures.py</code> makes each figure again.</p>
+<div class="keep"><p><b>1. Hough corners on a curved page.</b> The top edge bends, so the outermost straight Hough line cuts below the
+true corner on one side. Hough found only 9/18 grids within 1/4 cell; fixed by using the contour first.</p>
+<img src="figures/failure1_hough_curved_page.png" style="max-height: 62mm"></div>
+<div class="keep"><p><b>2. Broken stroke.</b> The threshold broke the bottom tail off a 3. Keeping only the largest component gave a 9;
+joining pieces that overlap the digit's box gives a 3.</p>
+<img src="figures/failure2_broken_stroke.png" style="max-height: 52mm"></div>
+<div class="keep"><p><b>3. Digit cut by the cell margin.</b> Because of the curl, digits near the top sit low in their cells. The old 10%
+margin cut the 9's tail, and it was read as 8 in the rotated copies. Removing the grid lines first allows a 5% margin.</p>
+<img src="figures/failure3_digit_cut_by_margin.png" style="max-height: 45mm"></div>
+<div class="keep"><p><b>4. Mirrored photo.</b> Read as it is, a mirrored grid gives nonsense (mostly 8 and 9) and the solver fails. The
+correct orientation has clearly the highest confidence (0.99, next best 0.83). The puzzle's givens are symmetric under
+180 degree rotation, so the empty / filled pattern alone could not tell the orientation.</p>
+<img src="figures/failure4_mirrored_photo.png" style="max-height: 55mm"></div>
+
+<h3>Limitations</h3>
+<ul>
+	<li>Only one real puzzle. The 576 test digits are 32 printed digits in 18 orientations, so the perfect test scores
+	show the pipeline handles rotation and mirroring; they say little about new fonts or puzzles. More photos are needed.</li>
+	<li>The rotated copies come from the same pixels, so they have the same lighting, blur and curl.</li>
+	<li>The page curl is handled by cleaning, not by un-curling the page. A stronger curl would break the square warp.</li>
+	<li>Not attempted: strongly tilted pages, Fourier cell size, live video.</li>
+</ul>
+
+</body>
+</html>

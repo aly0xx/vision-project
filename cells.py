@@ -158,7 +158,12 @@ if __name__ == "__main__":
 				["cell threshold", "after opening", f"components ({n - 1})", "28x28 digit"],
 				cols=4, save_as="step4_cell_example.png")
 
+	with_lines = threshold_photo(warped)
+	with_lines[red_ink_mask(warped) > 0] = 0
+	show_images([warped, with_lines, binary], ["warped", "threshold, red ink removed", "grid lines removed"],
+				cols=3, save_as="step4_lines_removed.png")
+
 	blank = np.zeros((DIGIT_SIZE, DIGIT_SIZE), np.uint8)
 	show_images([d if d is not None else blank for d in digits], [str(i) for i in range(81)],
 				cols=9, save_as="step4_digits.png")
-	print("saved results/step4_cell_example.png and results/step4_digits.png")
+	print("saved results/step4_cell_example.png, step4_lines_removed.png and step4_digits.png")

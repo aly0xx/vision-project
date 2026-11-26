@@ -170,7 +170,9 @@ if __name__ == "__main__":
 		pickle.dump({"models": {k: v[0] for k, v in results.items()}, "best": best_name}, f)
 
 	rows, n_test = test_all(results)
-	print(f"\n{'model':12s} {'settings':22s} {'val acc':>8s} {'test acc':>9s}   ({n_test} real test digits)")
+	table = [f"{'model':12s} {'settings':22s} {'val acc':>8s} {'test acc':>9s}   ({n_test} real test digits)"]
 	for name, params, val_acc, test_acc in rows:
-		print(f"{name:12s} {params:22s} {val_acc:8.3f} {test_acc:9.3f}")
+		table.append(f"{name:12s} {params:22s} {val_acc:8.3f} {test_acc:9.3f}")
+	print("\n" + "\n".join(table))
+	(RESULTS_DIR / "step5_table.txt").write_text("\n".join(table) + "\n")
 	print(f"\nbest on validation (excluding KNN, which gives no real confidence): {best_name}, used by the reader")

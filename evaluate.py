@@ -6,6 +6,7 @@ import pickle
 import cv2
 import numpy as np
 from sklearn.metrics import accuracy_score
+from sklearn.svm import SVC
 
 from augment import load_corners
 from cells import orient, process_cells, unorient
@@ -15,6 +16,7 @@ from grid import corners_from_contour, corners_from_hough, find_grid, harris_che
 from preprocess import threshold_photo, to_gray
 from reader import load_model, run
 from solver import solve
+from synth_digits import FONT_FILES, HERSHEY, VAL_FONTS, make_dataset
 from utils import PHOTOS_DIR, RESULTS_DIR, load_ground_truth, load_photo, show_images
 from warp import split_cells
 
@@ -40,9 +42,14 @@ def otsu(img):
 	return cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
 
 
+def global_threshold(img, t=127):
+	gray = cv2.GaussianBlur(to_gray(img), (5, 5), 0)
+	return cv2.threshold(gray, t, 255, cv2.THRESH_BINARY_INV)[1]
+
+
 def grid_detection(photos):
 	errors = {"final (contour, Hough fallback)": [], "contour only": [], "Hough only": [],
-			  "Hough + Harris": [], "final with Otsu threshold": []}
+			  "Hough + Harris": [], "final with Otsu threshold": [], "final with global threshold": []}
 	for path in photos:
 		img = load_photo(path)
 		true = order_corners(load_corners(path.stem))
@@ -54,6 +61,8 @@ def grid_detection(photos):
 		harris = harris_check(img, order_corners(hough)) if hough is not None else None
 		errors["Hough + Harris"].append(corner_error(harris, true))
 		errors["final with Otsu threshold"].append(corner_error(find_grid(img, binary=otsu(img))[0], true))
+		errors["final with global threshold"].append(
+			corner_error(find_grid(img, binary=global_threshold(img))[0], true))
 
 	lines = [f"Grid detection ({len(photos)} photos, detected = every corner within {TOLERANCE} cell of the hand-marked corner)"]
 	for name, errs in errors.items():
@@ -85,6 +94,20 @@ def classifiers():
 	lines = [f"Digit accuracy on {len(y_test)} real test digits (trained on synthetic only)"]
 	for name, model in models.items():
 		lines.append(f"  {name:10s} {accuracy_score(y_test, model.predict(X_test)):.3f}")
+	return lines
+
+
+def font_study():
+	X_test, y_test, _ = load_real()
+	hershey = [f for f in HERSHEY if f not in VAL_FONTS]
+	ttf = ["LiberationSans-Regular", "DejaVuSans", "NimbusRoman-Regular", "C059-Roman"]
+	all_train = [f for f in list(HERSHEY) + list(FONT_FILES) if f not in VAL_FONTS]
+	lines = ["Training fonts vs real test accuracy (SVM, rbf, C=10)"]
+	for name, fonts in [("Hershey only", hershey), ("4 TrueType only", ttf),
+						("Hershey + 4 TrueType", hershey + ttf), ("all 16 training fonts", all_train)]:
+		X, y = make_dataset(fonts, 40, np.random.default_rng(0))
+		model = SVC(C=10).fit(X.reshape(len(X), -1) / 255.0, y)
+		lines.append(f"  {name:22s} {len(fonts):2d} fonts  {accuracy_score(y_test, model.predict(X_test)):.3f}")
 	return lines
 
 
@@ -125,7 +148,7 @@ def end_to_end(photos):
 
 if __name__ == "__main__":
 	photos = sorted(PHOTOS_DIR.glob("*.jpeg"))
-	lines = grid_detection(photos) + [""] + empty_cells(photos) + [""] + classifiers() + [""]
+	lines = grid_detection(photos) + [""] + empty_cells(photos) + [""] + classifiers() + [""] + font_study() + [""]
 	e2e, failures = end_to_end(photos)
 	lines += e2e + ["", f"Problems found ({len(failures)}):"] + ["  " + f for f in failures]
 

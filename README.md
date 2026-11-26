@@ -2,68 +2,76 @@
 
 CSCE 4603 course project. Reads a printed Sudoku from a phone photo, solves it and draws the answer back on the photo.
 
-The full project plan is in [report/project_plan.pdf](report/project_plan.pdf).
+- Report: [report/Project_Report.pdf](report/Project_Report.pdf) (source: `report/report.html`)
+- Project plan: [report/project_plan.pdf](report/project_plan.pdf)
+- Dataset description: [data/README.md](data/README.md)
 
-![checkpoint](report/figures/checkpoint_puzzle01.png)
+![solved](report/figures/solved_puzzle01_flip_rot-20.png)
 
-## Setup
+## Results
 
-Uses the course venv (`../.venv`) with OpenCV, NumPy, Matplotlib and scikit-learn.
+| | |
+|---|---|
+| Grid detection | 18/18 photos, mean corner error 0.08 cells |
+| Empty / filled cells | 1458/1458 |
+| Digit accuracy (KNN, SVM, MLP, each with and without PCA) | 576/576 real test digits for all six, validation 0.986 to 0.995 |
+| Puzzles solved end to end | 18/18 |
 
-## Layout
+All 18 photos come from one printed puzzle (the original plus rotated and flipped copies), so these numbers show the pipeline handles rotation and mirroring but say little about new puzzles. See the report for details.
 
-- `data/photos/` puzzle photos (`puzzleNN.jpeg`)
-- `data/ground_truth/` one text file per puzzle, 9 lines of 9 digits, `0` for empty (only printed givens, not pen marks)
-- `report/` project plan and figures used in this README
-- `results/` figures produced by the scripts (not committed)
+## Setup and running
 
-## Running
+Uses the course venv (`../.venv`) with OpenCV, NumPy, Matplotlib, scikit-learn and Pillow.
 
-Run from this folder with the course venv, e.g. `../.venv/bin/python run_checkpoint.py`.
+```
+python main.py                      # everything: figures, training, evaluation, failure cases, solved photos
+python reader.py path/to/photo.jpeg # solve one photo
+python make_dataset_zip.py          # sudoku_dataset.zip for the submission
+```
 
-- `preprocess.py` step 1, adaptive vs global vs Otsu threshold
-- `grid.py` step 2, outer grid corners (Hough, Harris check, contour fallback)
-- `warp.py` step 3, perspective warp and 81 cells
-- `cells.py` step 4, cell cleaning, empty detection, 28x28 digit crops
-- `synth_digits.py` generates `data/synthetic/digits.npz` (4500 digits 1-9)
-- `run_checkpoint.py` runs steps 1-4 on every photo in `data/photos/`
+Figures and text results go to `results/`, trained models to `models/` (both not committed).
 
-## Progress so far
+## Files
+
+| File | What it does |
+|---|---|
+| `preprocess.py` | step 1: blur and adaptive threshold (compared with global and Otsu) |
+| `grid.py` | step 2: grid corners from the largest contour, Hough fallback, Harris check |
+| `warp.py` | step 3: perspective warp to 450x450 and 81 cells |
+| `cells.py` | step 4: grid line removal, red ink mask, connected components, 28x28 digits |
+| `synth_digits.py` | synthetic digits from Hershey and TrueType fonts |
+| `dataset.py` | synthetic train/val (split by font) and real test digits |
+| `classify.py` | step 5: KNN, SVM, MLP with and without PCA |
+| `solver.py` | step 6: backtracking solver and solution counting |
+| `reader.py` | full pipeline: orientation search, reading, solving, drawing |
+| `evaluate.py` | all numbers for the report |
+| `failures.py` | figures for the failure cases |
+| `augment.py` | rotated and flipped copies of the photos |
+| `run_checkpoint.py` | steps 1-4 only (25 Nov checkpoint) |
+| `main.py` | runs everything |
+
+## Pipeline
 
 ### Step 1: threshold
 
-Gaussian blur then adaptive threshold (block 15, C 8). Global and Otsu are shown for comparison. Adaptive keeps the thin lines even where the page is darker.
-
 ![thresholds](report/figures/step1_thresholds.png)
 
-### Step 2: find the grid
-
-Canny edges and Hough lines, then the outermost horizontal and vertical lines are intersected to get the four corners. Harris corners are used as a check (about 4 px from the Hough corners on average).
-
-![grid](report/figures/step2_grid.png)
-
-### Step 3: warp and split
-
-The corners are warped to a 450x450 square and cut into 81 cells. The inverse homography is kept for drawing the answer later.
+### Step 2-3: find the grid and warp
 
 ![warp](report/figures/step3_warp.png)
 
-### Step 4: cells and digits
+### Step 4: remove grid lines and find digits
 
-Each cell is cleaned with an opening, then connected components decide if it is empty. Red pen marks are removed by colour so only printed digits are kept. On puzzle01 all 81 cells are marked empty or filled correctly.
-
-![cell example](report/figures/step4_cell_example.png)
+![lines removed](report/figures/step4_lines_removed.png)
 
 ![digits](report/figures/step4_digits.png)
 
-### Synthetic digits
+### Step 5: classifiers
 
-Digits 1-9 drawn with OpenCV fonts, then rotated, sheared, blurred and noised, and passed through the same step 4 code.
+![training](report/figures/step5_training.png)
 
-![synthetic](report/figures/synthetic_digits.png)
+### Step 6: orientation, solve and draw
 
-## Next
+![mirrored](report/figures/failure4_mirrored_photo.png)
 
-- more puzzle photos and ground truth files
-- step 5: KNN, SVM and a small neural network, with and without PCA
-- step 6: backtracking solver and drawing the answer on the photo
+![solved](report/figures/solved_puzzle01.png)
