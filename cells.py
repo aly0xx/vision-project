@@ -49,7 +49,28 @@ def find_digit(cell_binary, min_area=0.02, max_area=0.6):
 
 	if best is None:
 		return None
-	return (labels == best).astype(np.uint8) * 255, stats[best]
+	return add_broken_pieces(labels, stats, best, h, w)
+
+
+def add_broken_pieces(labels, stats, best, h, w, margin=3, min_piece=0.005):
+	x, y, bw, bh, _ = stats[best]
+	keep = [best]
+	for i in range(1, len(stats)):
+		px, py, pw, ph, area = stats[i]
+		if i == best or area < min_piece * h * w:
+			continue
+		if pw > 0.8 * w or ph > 0.8 * h:
+			continue
+		if min(pw, ph) <= 3 and max(pw, ph) >= 3 * min(pw, ph):
+			continue
+		overlaps_x = px <= x + bw + margin and px + pw >= x - margin
+		overlaps_y = py <= y + bh + margin and py + ph >= y - margin
+		if overlaps_x and overlaps_y:
+			keep.append(i)
+
+	mask = np.isin(labels, keep).astype(np.uint8) * 255
+	x, y, bw, bh = cv2.boundingRect(mask)
+	return mask, (x, y, bw, bh, int(np.count_nonzero(mask)))
 
 
 def normalize_digit(digit_mask, stat, size=DIGIT_SIZE, pad=4):
@@ -79,10 +100,19 @@ def unorient(img, k, flip):
 	return np.ascontiguousarray(img)
 
 
+def remove_grid_lines(binary):
+	length = int(binary.shape[0] / 9 * 0.9)
+	horizontal = cv2.morphologyEx(binary, cv2.MORPH_OPEN, np.ones((1, length), np.uint8))
+	vertical = cv2.morphologyEx(binary, cv2.MORPH_OPEN, np.ones((length, 1), np.uint8))
+	horizontal = cv2.dilate(horizontal, np.ones((5, length), np.uint8))
+	vertical = cv2.dilate(vertical, np.ones((length, 5), np.uint8))
+	return cv2.subtract(binary, horizontal | vertical)
+
+
 def binarize_grid(warped):
 	binary = threshold_photo(warped)
 	binary[red_ink_mask(warped) > 0] = 0
-	return binary
+	return remove_grid_lines(binary)
 
 
 def process_cells(binary_cells, use_morphology=True):

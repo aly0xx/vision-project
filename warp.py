@@ -15,7 +15,7 @@ def warp_grid(img, corners, size=450):
 	return warped, H, H_inv
 
 
-def split_cells(warped, margin=0.1):
+def split_cells(warped, margin=0.05):
 	size = warped.shape[0]
 	step = size // 9
 	m = int(step * margin)

@@ -163,7 +163,8 @@ if __name__ == "__main__":
 	results, curves, n_pca, ratios = train_all()
 	plot_curves(curves, ratios, n_pca)
 
-	best_name = max(results, key=lambda name: results[name][1])
+	with_confidence = [name for name in results if not name.startswith("KNN")]
+	best_name = max(with_confidence, key=lambda name: results[name][1])
 	MODELS_PATH.parent.mkdir(exist_ok=True)
 	with open(MODELS_PATH, "wb") as f:
 		pickle.dump({"models": {k: v[0] for k, v in results.items()}, "best": best_name}, f)
@@ -172,4 +173,4 @@ if __name__ == "__main__":
 	print(f"\n{'model':12s} {'settings':22s} {'val acc':>8s} {'test acc':>9s}   ({n_test} real test digits)")
 	for name, params, val_acc, test_acc in rows:
 		print(f"{name:12s} {params:22s} {val_acc:8.3f} {test_acc:9.3f}")
-	print(f"\nbest on validation: {best_name} (used by the reader)")
+	print(f"\nbest on validation (excluding KNN, which gives no real confidence): {best_name}, used by the reader")
