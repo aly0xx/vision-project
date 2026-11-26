@@ -11,6 +11,7 @@ from warp import split_cells, warp_grid
 
 
 DIGIT_SIZE = 28
+ORIENTATIONS = [(k, flip) for flip in (False, True) for k in range(4)]
 
 
 def red_ink_mask(img, min_diff=15):
@@ -65,10 +66,29 @@ def normalize_digit(digit_mask, stat, size=DIGIT_SIZE, pad=4):
 	return out
 
 
-def process_cells(binary_cells):
+def orient(img, k, flip):
+	if flip:
+		img = np.fliplr(img)
+	return np.ascontiguousarray(np.rot90(img, k))
+
+
+def unorient(img, k, flip):
+	img = np.rot90(img, -k)
+	if flip:
+		img = np.fliplr(img)
+	return np.ascontiguousarray(img)
+
+
+def binarize_grid(warped):
+	binary = threshold_photo(warped)
+	binary[red_ink_mask(warped) > 0] = 0
+	return binary
+
+
+def process_cells(binary_cells, use_morphology=True):
 	digits = []
 	for cell in binary_cells:
-		cleaned = clean_cell(cell)
+		cleaned = clean_cell(cell) if use_morphology else cell
 		found = find_digit(cleaned)
 		if found is None:
 			digits.append(None)
@@ -80,10 +100,8 @@ def process_cells(binary_cells):
 def extract_digits(img):
 	corners, _ = find_grid(img)
 	warped, H, H_inv = warp_grid(img, corners)
-	binary = threshold_photo(warped)
-	binary[red_ink_mask(warped) > 0] = 0
-	binary_cells = split_cells(binary)
-	return process_cells(binary_cells), warped, binary, H_inv
+	binary = binarize_grid(warped)
+	return process_cells(split_cells(binary)), warped, binary, H_inv
 
 
 def empty_accuracy(digits, truth):
