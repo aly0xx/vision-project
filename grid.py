@@ -131,8 +131,9 @@ def harris_check(img, corners, window=10):
 	return np.array(refined, dtype=np.float32)
 
 
-def find_grid(img, min_score=0.3):
-	binary = threshold_photo(img)
+def find_grid(img, min_score=0.3, binary=None):
+	if binary is None:
+		binary = threshold_photo(img)
 	contour = corners_from_contour(binary)
 	if contour is not None and grid_score(binary, order_corners(contour)) >= min_score:
 		return order_corners(contour), "contour"
