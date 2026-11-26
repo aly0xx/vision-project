@@ -1,3 +1,5 @@
+# Runs steps 1-4 on every photo in data/photos and saves a summary figure for each one.
+
 from cells import empty_accuracy, extract_digits
 from grid import draw_corners, find_grid
 from utils import DATA_DIR, PHOTOS_DIR, load_ground_truth, load_photo, show_images

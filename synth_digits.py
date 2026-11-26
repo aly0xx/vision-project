@@ -1,3 +1,6 @@
+# Makes synthetic training digits 1-9 with cv2.putText, adds rotation, shear, blur and noise,
+# then passes them through the same cell processing as the real photos.
+
 import cv2
 import numpy as np
 

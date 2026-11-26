@@ -1,3 +1,5 @@
+# Shared helpers: project paths, loading photos and ground truth, and saving labelled figures.
+
 from pathlib import Path
 
 import cv2
@@ -42,6 +44,7 @@ def show_images(images, titles, cols=3, save_as=None):
 
 
 def load_ground_truth(name):
-	path = DATA_DIR / "ground_truth" / f"{name}.txt"
+	puzzle = name.split("_")[0]
+	path = DATA_DIR / "ground_truth" / f"{puzzle}.txt"
 	digits = [int(ch) for ch in path.read_text() if ch.isdigit()]
 	return [digits[i * 9:(i + 1) * 9] for i in range(9)]

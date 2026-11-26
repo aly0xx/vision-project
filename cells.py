@@ -1,3 +1,6 @@
+# Step 4: clean each cell with morphology and use connected components to decide empty or digit.
+# Digits are cropped, padded and resized to 28x28. Red pen marks are ignored.
+
 import cv2
 import numpy as np
 

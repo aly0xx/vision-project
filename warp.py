@@ -1,3 +1,5 @@
+# Step 3: warp the grid to a square top-down view with a homography and cut it into 81 cells.
+
 import cv2
 import numpy as np
 

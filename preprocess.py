@@ -1,3 +1,6 @@
+# Step 1: grayscale, Gaussian blur and adaptive threshold so grid lines and digits are white on black.
+# Running it compares adaptive with global and Otsu thresholding.
+
 import cv2
 
 from utils import PHOTOS_DIR, load_photo, show_images

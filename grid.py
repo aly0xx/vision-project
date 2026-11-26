@@ -1,3 +1,6 @@
+# Step 2: find the four outer corners of the grid with Canny + Hough lines.
+# Harris corners are used as a cross-check and the largest contour as a fallback.
+
 import cv2
 import numpy as np
 
